@@ -17,10 +17,10 @@
 package main
 
 import (
-	log "github.com/alecthomas/log4go"
 	"errors"
 	"github.com/Terry-Mao/gopush-cluster/id"
 	myrpc "github.com/Terry-Mao/gopush-cluster/rpc"
+	log "github.com/alecthomas/log4go"
 	"net"
 	"net/rpc"
 	"sync"

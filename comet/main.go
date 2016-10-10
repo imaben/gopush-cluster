@@ -17,11 +17,11 @@
 package main
 
 import (
-	log "github.com/alecthomas/log4go"
 	"flag"
 	"github.com/Terry-Mao/gopush-cluster/perf"
 	"github.com/Terry-Mao/gopush-cluster/process"
 	"github.com/Terry-Mao/gopush-cluster/ver"
+	log "github.com/alecthomas/log4go"
 	"runtime"
 )
 
@@ -39,14 +39,18 @@ func main() {
 	log.LoadConfiguration(Conf.Log)
 	defer log.Close()
 	// start pprof
+	// go 内置的性能查看工具，使用http
 	perf.Init(Conf.PprofBind)
 	// create channel
 	// if process exit, close channel
+	// 初始化通道池
 	UserChannel = NewChannelList()
 	defer UserChannel.Close()
 	// start stats
+	// 启动服务状态查看服务，用于通过http即可查看当前服务的工作状态
 	StartStats()
 	// start rpc
+	// rpc服务初始化,用于和message、web模块通信
 	if err := StartRPC(); err != nil {
 		panic(err)
 	}

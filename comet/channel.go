@@ -17,12 +17,12 @@
 package main
 
 import (
-	log "github.com/alecthomas/log4go"
 	"errors"
 	"github.com/Terry-Mao/gopush-cluster/hash"
 	"github.com/Terry-Mao/gopush-cluster/hlist"
 	"github.com/Terry-Mao/gopush-cluster/ketama"
 	myrpc "github.com/Terry-Mao/gopush-cluster/rpc"
+	log "github.com/alecthomas/log4go"
 	"sync"
 )
 
@@ -79,9 +79,11 @@ func (c *ChannelBucket) Unlock() {
 
 // NewChannelList create a new channel bucket set.
 func NewChannelList() *ChannelList {
+	// bucket：哈希?
 	l := &ChannelList{Channels: []*ChannelBucket{}}
 	// split hashmap to many bucket
 	log.Debug("create %d ChannelBucket", Conf.ChannelBucket)
+	// 初始化bucket相关数据
 	for i := 0; i < Conf.ChannelBucket; i++ {
 		c := &ChannelBucket{
 			Data:  map[string]Channel{},
@@ -200,6 +202,8 @@ func (l *ChannelList) Delete(key string) (Channel, error) {
 // Close close all channel.
 func (l *ChannelList) Close() {
 	log.Info("channel close")
+	// 将所有bucket中的channel全部读出来
+	// 依次放到chs中，逐个close
 	chs := make([]Channel, 0, l.Count())
 	for _, c := range l.Channels {
 		c.Lock()

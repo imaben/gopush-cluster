@@ -17,8 +17,8 @@
 package main
 
 import (
-	log "github.com/alecthomas/log4go"
 	"encoding/json"
+	log "github.com/alecthomas/log4go"
 	"net/http"
 	"os"
 	"os/user"
@@ -39,6 +39,7 @@ var (
 )
 
 // Channel stat info
+// 统计信息的自增变量
 type ChannelStat struct {
 	Access uint64 // total access count
 	Create uint64 // total create count
@@ -116,6 +117,7 @@ func (s *ConnectionStat) Stat() []byte {
 func statListen(bind string) {
 	httpServeMux := http.NewServeMux()
 	httpServeMux.HandleFunc("/stat", StatHandle)
+	// 启动服务
 	if err := http.ListenAndServe(bind, httpServeMux); err != nil {
 		log.Error("http.ListenAdServe(\"%s\") error(%v)", bind, err)
 		panic(err)
@@ -125,6 +127,7 @@ func statListen(bind string) {
 // start stats, called at process start
 func StartStats() {
 	startTime = time.Now().UnixNano()
+	// 可以监听多个地址和端口,正常应该不会设置多个吧
 	for _, bind := range Conf.StatBind {
 		log.Info("start stat listen addr:\"%s\"", bind)
 		go statListen(bind)
@@ -249,6 +252,7 @@ func StatHandle(w http.ResponseWriter, r *http.Request) {
 	params := r.URL.Query()
 	types := params.Get("type")
 	res := []byte{}
+	// memory server golang基本就是对runtime信息的一层封装，通过http对外暴露
 	switch types {
 	case "memory":
 		res = MemStats()
@@ -257,17 +261,18 @@ func StatHandle(w http.ResponseWriter, r *http.Request) {
 	case "golang":
 		res = GoStats()
 	case "config":
-		res = ConfigInfo()
-	case "channel":
+		res = ConfigInfo() // 配置信息的对外暴露
+	case "channel": // 通道信息的统计
+		// key 为bucket的key
 		key := params.Get("key")
 		if key == "" {
 			res = ChStat.Stat()
 		} else {
 			res = ChInfoStat(key)
 		}
-	case "message":
+	case "message": // 消息数统计
 		res = MsgStat.Stat()
-	case "connection":
+	case "connection": // 连接数统计
 		res = ConnStat.Stat()
 	default:
 		http.Error(w, "Not Found", 404)
