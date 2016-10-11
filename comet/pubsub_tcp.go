@@ -18,14 +18,15 @@ package main
 
 import (
 	"bufio"
-	log "github.com/alecthomas/log4go"
 	"errors"
+	log "github.com/alecthomas/log4go"
 	"io"
 	"net"
 	"strconv"
 	"time"
 )
 
+// 协议中规定的最小必选参数个数貌似是3个，不知道这里为何是1个
 const (
 	minCmdNum = 1
 	maxCmdNum = 5
@@ -38,12 +39,16 @@ var (
 
 // tcpBuf cache.
 type tcpBufCache struct {
+	// 这是个channel, channel, channel!!!
 	instance []chan *bufio.Reader
 	round    int
 }
 
 // newTCPBufCache return a new tcpBuf cache.
 func newtcpBufCache() *tcpBufCache {
+	// instance默认是CPU的个数
+	// 假如instance=4 bufio.num=128
+	// 则inst = 4 * 128
 	inst := make([]chan *bufio.Reader, 0, Conf.BufioInstance)
 	log.Debug("create %d read buffer instance", Conf.BufioInstance)
 	for i := 0; i < Conf.BufioInstance; i++ {
@@ -113,30 +118,38 @@ func tcpListen(bind string) {
 		}
 	}()
 	// init reader buffer instance
+	// 创建一个tcp buffer
 	rb := newtcpBufCache()
 	for {
+		// 开始监听端口
 		log.Debug("start accept")
 		conn, err := l.AcceptTCP()
 		if err != nil {
 			log.Error("listener.AcceptTCP() error(%v)", err)
 			continue
 		}
+		// 设置keepalive
 		if err = conn.SetKeepAlive(Conf.TCPKeepalive); err != nil {
 			log.Error("conn.SetKeepAlive() error(%v)", err)
 			conn.Close()
 			continue
 		}
+		// 设置连接读取buffer大小
 		if err = conn.SetReadBuffer(Conf.RcvbufSize); err != nil {
 			log.Error("conn.SetReadBuffer(%d) error(%v)", Conf.RcvbufSize, err)
 			conn.Close()
 			continue
 		}
+		// 设置连接写入buffer大小
 		if err = conn.SetWriteBuffer(Conf.SndbufSize); err != nil {
 			log.Error("conn.SetWriteBuffer(%d) error(%v)", Conf.SndbufSize, err)
 			conn.Close()
 			continue
 		}
 		// first packet must sent by client in specified seconds
+		// 设置心跳包连接检查机制,防止对方突然拨掉网线或崩溃
+		// 主要是解决检测网络掉线问题
+		// 每隔fitstPacketTimedoutSec发送一次心跳包
 		if err = conn.SetReadDeadline(time.Now().Add(fitstPacketTimedoutSec)); err != nil {
 			log.Error("conn.SetReadDeadLine() error(%v)", err)
 			conn.Close()
@@ -158,11 +171,11 @@ func handleTCPConn(conn net.Conn, rc chan *bufio.Reader) {
 		// return buffer bufio.Reader
 		putBufioReader(rc, rd)
 		switch args[0] {
-		case "sub":
-			SubscribeTCPHandle(conn, args[1:])
+		case "sub": // 订阅指令
+			SubscribeTCPHandle(conn, args[1:]) // args:将除`cmd`以外的所有参数传入
 			break
 		default:
-			conn.Write(ParamReply)
+			conn.Write(ParamReply) // 返回错误信息 此处-p为参数错误
 			log.Warn("<%s> unknown cmd \"%s\"", addr, args[0])
 			break
 		}
@@ -180,15 +193,17 @@ func handleTCPConn(conn net.Conn, rc chan *bufio.Reader) {
 }
 
 // SubscribeTCPHandle handle the subscribers's connection.
+// 处理订阅者相关信息
 func SubscribeTCPHandle(conn net.Conn, args []string) {
 	argLen := len(args)
 	addr := conn.RemoteAddr().String()
-	if argLen < 2 {
+	if argLen < 2 { // 参数错误
 		conn.Write(ParamReply)
 		log.Error("<%s> subscriber missing argument", addr)
 		return
 	}
 	// key, heartbeat
+	// key, heartbeat均为必选项
 	key := args[0]
 	if key == "" {
 		conn.Write(ParamReply)
@@ -202,7 +217,7 @@ func SubscribeTCPHandle(conn net.Conn, args []string) {
 		log.Error("<%s> user_key:\"%s\" heartbeat:\"%s\" argument error (%v)", addr, key, heartbeatStr, err)
 		return
 	}
-	if i < minHearbeatSec {
+	if i < minHearbeatSec { // 默认最小心跳时长为30秒
 		conn.Write(ParamReply)
 		log.Warn("<%s> user_key:\"%s\" heartbeat argument error, less than %d", addr, key, minHearbeatSec)
 		return
@@ -218,6 +233,7 @@ func SubscribeTCPHandle(conn net.Conn, args []string) {
 	}
 	log.Info("<%s> subscribe to key = %s, heartbeat = %d, token = %s, version = %s", addr, key, heartbeat, token, version)
 	// fetch subscriber from the channel
+	// key在此处应该可以理解为是一个唯一ID,用来标识不同的客户端
 	c, err := UserChannel.Get(key, true)
 	if err != nil {
 		log.Warn("<%s> user_key:\"%s\" can't get a channel (%s)", addr, key, err)
@@ -283,8 +299,11 @@ func SubscribeTCPHandle(conn net.Conn, args []string) {
 }
 
 // parseCmd parse the tcp request command.
+// 解析协议
+// 具体协议说明见https://github.com/Terry-Mao/gopush-cluster/blob/master/wiki/comet/client_proto_zh.textile
 func parseCmd(rd *bufio.Reader) ([]string, error) {
 	// get argument number
+	// 格式：*参数个数\r\n
 	argNum, err := parseCmdSize(rd, '*')
 	if err != nil {
 		log.Error("tcp:cmd format error when find '*' (%v)", err)
@@ -295,14 +314,17 @@ func parseCmd(rd *bufio.Reader) ([]string, error) {
 		return nil, ErrProtocol
 	}
 	args := make([]string, 0, argNum)
+	// 得到参数个数之后，依次读取具体参数
 	for i := 0; i < argNum; i++ {
 		// get argument length
+		// 读取参数占用的字节数
 		cmdLen, err := parseCmdSize(rd, '$')
 		if err != nil {
 			log.Error("tcp:parseCmdSize(rd, '$') error(%v)", err)
 			return nil, err
 		}
 		// get argument data
+		// 获取具体参数内容
 		d, err := parseCmdData(rd, cmdLen)
 		if err != nil {
 			log.Error("tcp:parseCmdData() error(%v)", err)
@@ -311,12 +333,16 @@ func parseCmd(rd *bufio.Reader) ([]string, error) {
 		// append args
 		args = append(args, string(d))
 	}
+	// 这里貌似没有区分是cmd key heartbeat token还是version,继续向下走
 	return args, nil
 }
 
 // parseCmdSize get the request protocol cmd size.
 func parseCmdSize(rd *bufio.Reader, prefix uint8) (int, error) {
 	// get command size
+	// 参数个数格式：*参数个数\r\n
+	// 参数具体格式：$参数长度\r\n参数数据\r\n
+	// 读取到第一个\n结束
 	cs, err := rd.ReadBytes('\n')
 	if err != nil {
 		log.Error("tcp:rd.ReadBytes('\\n') error(%v)", err)
@@ -328,6 +354,8 @@ func parseCmdSize(rd *bufio.Reader, prefix uint8) (int, error) {
 		return 0, ErrProtocol
 	}
 	// skip the \r\n
+	// 去除第一个字符(*|$)和最后的\r\n
+	// 转换为整型，即是参数个数
 	cmdSize, err := strconv.Atoi(string(cs[1 : csl-2]))
 	if err != nil {
 		log.Error("tcp:\"%v\" number parse int error(%v)", cs, err)

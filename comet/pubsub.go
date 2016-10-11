@@ -17,8 +17,8 @@
 package main
 
 import (
-	log "github.com/alecthomas/log4go"
 	"errors"
+	log "github.com/alecthomas/log4go"
 	"time"
 )
 
@@ -56,6 +56,7 @@ var (
 // StartListen start accept client.
 func StartComet() error {
 	for _, proto := range Conf.Proto {
+		// 只支持websocket和tcp协议
 		if proto == WebsocketProtoStr {
 			// Start http push service
 			if err := StartWebsocket(); err != nil {
