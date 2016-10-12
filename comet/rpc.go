@@ -106,6 +106,8 @@ func (c *CometRPC) PushPrivate(args *myrpc.CometPushPrivateArgs, ret *int) error
 		return myrpc.ErrParam
 	}
 	// get a user channel
+	// 此处为何有创建新通道的操作
+	// 假如获取不到key不是直接应该报错吗？
 	ch, _, err := UserChannel.New(args.Key)
 	if err != nil {
 		log.Error("UserChannel.New(\"%s\") error(%v)", args.Key, err)

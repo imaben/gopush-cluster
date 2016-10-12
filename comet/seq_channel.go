@@ -17,11 +17,11 @@
 package main
 
 import (
-	log "github.com/alecthomas/log4go"
 	"errors"
 	"github.com/Terry-Mao/gopush-cluster/hlist"
 	"github.com/Terry-Mao/gopush-cluster/id"
 	myrpc "github.com/Terry-Mao/gopush-cluster/rpc"
+	log "github.com/alecthomas/log4go"
 	"sync"
 )
 
@@ -37,7 +37,7 @@ type SeqChannel struct {
 	// Mutex
 	mutex *sync.Mutex
 	// client conn double linked-list
-	conn *hlist.Hlist
+	conn *hlist.Hlist //一个key下面是允许有多个connection的，根据key发送的时候会遍历发送所有
 	// Remove time id or lazy New
 	// timeID *id.TimeID
 	// token
@@ -48,7 +48,7 @@ type SeqChannel struct {
 func NewSeqChannel() *SeqChannel {
 	ch := &SeqChannel{
 		mutex: &sync.Mutex{},
-		conn:  hlist.New(),
+		conn:  hlist.New(), // 双向链表
 		//timeID: id.NewTimeID(),
 		token: nil,
 	}
@@ -75,6 +75,7 @@ func (c *SeqChannel) AddToken(key, token string) error {
 }
 
 // AuthToken implements the Channel AuthToken method.
+// 验证token
 func (c *SeqChannel) AuthToken(key, token string) bool {
 	if !Conf.Auth {
 		return true
@@ -90,6 +91,7 @@ func (c *SeqChannel) AuthToken(key, token string) bool {
 }
 
 // WriteMsg implements the Channel WriteMsg method.
+// 加锁写消息接口，对外暴露
 func (c *SeqChannel) WriteMsg(key string, m *myrpc.Message) (err error) {
 	c.mutex.Lock()
 	err = c.writeMsg(key, m)
@@ -98,11 +100,14 @@ func (c *SeqChannel) WriteMsg(key string, m *myrpc.Message) (err error) {
 }
 
 // writeMsg write msg to conn.
+// 无锁写消息接口，不对外暴露
 func (c *SeqChannel) writeMsg(key string, m *myrpc.Message) (err error) {
 	var (
 		oldMsg, msg, sendMsg []byte
 	)
 	// push message
+	// 遍历当前channel下的所有connection
+	// 一个key下面允许有多个connection
 	for e := c.conn.Front(); e != nil; e = e.Next() {
 		conn, _ := e.Value.(*Connection)
 		// if version empty then use old protocol
@@ -161,13 +166,13 @@ func (c *SeqChannel) PushMsg(key string, m *myrpc.Message, expire uint) (err err
 // AddConn implements the Channel AddConn method.
 func (c *SeqChannel) AddConn(key string, conn *Connection) (*hlist.Element, error) {
 	c.mutex.Lock()
-	if c.conn.Len()+1 > Conf.MaxSubscriberPerChannel {
+	if c.conn.Len()+1 > Conf.MaxSubscriberPerChannel { //每个channel最大连接数
 		c.mutex.Unlock()
 		log.Error("user_key:\"%s\" exceed conn", key)
 		return nil, ErrMaxConn
 	}
 	// send first heartbeat to tell client service is ready for accept heartbeat
-	if _, err := conn.Conn.Write(HeartbeatReply); err != nil {
+	if _, err := conn.Conn.Write(HeartbeatReply); err != nil { // 发送心跳包
 		c.mutex.Unlock()
 		log.Error("user_key:\"%s\" write first heartbeat to client error(%v)", key, err)
 		return nil, err
@@ -175,6 +180,7 @@ func (c *SeqChannel) AddConn(key string, conn *Connection) (*hlist.Element, erro
 	// add conn
 	conn.Buf = make(chan []byte, Conf.MsgBufNum)
 	conn.HandleWrite(key)
+	// 将新连接加到链表最前面
 	e := c.conn.PushFront(conn)
 	c.mutex.Unlock()
 	ConnStat.IncrAdd()

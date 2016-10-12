@@ -164,7 +164,9 @@ func (l *ChannelList) Get(key string, newOne bool) (Channel, error) {
 	b := l.Bucket(key)
 	b.Lock()
 	if c, ok := b.Data[key]; !ok {
+		// 如果没有取到key，并且允许创建新channel
 		if !Conf.Auth && newOne {
+			// 创建新channel
 			c = NewSeqChannel()
 			b.Data[key] = c
 			b.Unlock()

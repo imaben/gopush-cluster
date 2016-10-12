@@ -17,8 +17,8 @@
 package main
 
 import (
-	log "github.com/alecthomas/log4go"
 	"fmt"
+	log "github.com/alecthomas/log4go"
 	"net"
 )
 
@@ -27,10 +27,11 @@ type Connection struct {
 	Conn    net.Conn
 	Proto   uint8
 	Version string
-	Buf     chan []byte
+	Buf     chan []byte // 所有的发送内容均是写入到此channel
 }
 
 // HandleWrite start a goroutine get msg from chan, then send to the conn.
+// 正式负责connection循环写入的goroutine
 func (c *Connection) HandleWrite(key string) {
 	go func() {
 		var (
@@ -38,6 +39,7 @@ func (c *Connection) HandleWrite(key string) {
 			err error
 		)
 		log.Debug("user_key: \"%s\" HandleWrite goroutine start", key)
+		// 循环等待可写信号
 		for {
 			msg, ok := <-c.Buf
 			if !ok {
@@ -48,7 +50,7 @@ func (c *Connection) HandleWrite(key string) {
 				// raw
 				n, err = c.Conn.Write(msg)
 			} else if c.Proto == TCPProto {
-				// redis protocol
+				// redis protocol 此处用的redis协议
 				msg = []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(msg), string(msg)))
 				n, err = c.Conn.Write(msg)
 			} else {

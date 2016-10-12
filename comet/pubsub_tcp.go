@@ -245,12 +245,14 @@ func SubscribeTCPHandle(conn net.Conn, args []string) {
 		return
 	}
 	// auth token
+	// 验证token正确性
 	if ok := c.AuthToken(key, token); !ok {
 		conn.Write(AuthReply)
 		log.Error("<%s> user_key:\"%s\" auth token \"%s\" failed", addr, key, token)
 		return
 	}
 	// add a conn to the channel
+	// 将连接添加至channel
 	connElem, err := c.AddConn(key, &Connection{Conn: conn, Proto: TCPProto, Version: version})
 	if err != nil {
 		log.Error("<%s> user_key:\"%s\" add conn error(%v)", addr, key, err)
@@ -261,6 +263,10 @@ func SubscribeTCPHandle(conn net.Conn, args []string) {
 	// reply := make([]byte, HeartbeatLen)
 	begin := time.Now().UnixNano()
 	end := begin + Second
+	// 维护长连接机制，负责发送心跳包、检测长连接是否健康
+	// 所有可能出错的地方，全部break并移除conn
+	// 看到这个地方，comet模块的长连接只可以对客户端推送消息
+	// 客户端除了开始时的订阅和心跳包以外，不允许对服务端发送任何内容
 	for {
 		// more then 1 sec, reset the timer
 		if end-begin >= Second {
@@ -270,6 +276,7 @@ func SubscribeTCPHandle(conn net.Conn, args []string) {
 			}
 			begin = end
 		}
+		// 读取一个字节
 		if _, err = conn.Read(reply); err != nil {
 			if err != io.EOF {
 				log.Warn("<%s> user_key:\"%s\" conn.Read() failed, read heartbeat timedout error(%v)", addr, key, err)
@@ -279,6 +286,7 @@ func SubscribeTCPHandle(conn net.Conn, args []string) {
 			}
 			break
 		}
+		// 如果读取的字节是心跳包，则回复相应的一个心跳包
 		if string(reply) == Heartbeat {
 			if _, err = conn.Write(HeartbeatReply); err != nil {
 				log.Error("<%s> user_key:\"%s\" conn.Write() failed, write heartbeat to client error(%v)", addr, key, err)

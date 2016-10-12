@@ -17,9 +17,9 @@
 package main
 
 import (
-	log "github.com/alecthomas/log4go"
 	"container/list"
 	"errors"
+	log "github.com/alecthomas/log4go"
 	"time"
 )
 
@@ -48,7 +48,7 @@ type TokenData struct {
 func NewToken() *Token {
 	return &Token{
 		token: map[string]*list.Element{},
-		lru:   list.New(),
+		lru:   list.New(), // LRU使用的双向链表，类似linux内核的list结构
 	}
 }
 
@@ -78,8 +78,9 @@ func (t *Token) Auth(ticket string) error {
 			log.Warn("token \"%s\" expired", ticket)
 			return ErrTokenExpired
 		}
+		// 重置token过期时间
 		td.Expire = time.Now().Add(Conf.TokenExpire)
-		t.lru.MoveToBack(e)
+		t.lru.MoveToBack(e) // 移至lru顶端
 	}
 	t.clean()
 	return nil
